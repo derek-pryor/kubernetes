@@ -22,7 +22,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"math"
 	"os"
 	"sort"
@@ -449,7 +448,7 @@ func AfterReadingAllFlags(t *TestContextType) {
 	if len(t.Host) == 0 && len(t.KubeConfig) == 0 {
 		// Check if we can use the in-cluster config
 		if clusterConfig, err := restclient.InClusterConfig(); err == nil {
-			if tempFile, err := ioutil.TempFile(os.TempDir(), "kubeconfig-"); err == nil {
+			if tempFile, err := os.CreateTemp(os.TempDir(), "kubeconfig-"); err == nil {
 				kubeConfig := createKubeConfig(clusterConfig)
 				clientcmd.WriteToFile(*kubeConfig, tempFile.Name())
 				t.KubeConfig = tempFile.Name()
@@ -486,11 +485,6 @@ func AfterReadingAllFlags(t *TestContextType) {
 		TestContext.Provider = "skeleton"
 	}
 
-	// TODO: Fix tests scripts that set CONTAINER_RUNTIME="containerd"
-	if TestContext.ContainerRuntime == "containerd" {
-		klog.Warningf("The --container-runtime flag is set to 'containerd' instead of 'remote'.")
-		TestContext.ContainerRuntime = "remote"
-	}
 	// Make sure that container runtime is valid
 	if TestContext.ContainerRuntime != "remote" {
 		klog.Errorf("Unsupported CRI container runtime: %q", TestContext.ContainerRuntime)

@@ -730,7 +730,7 @@ function yaml-map-string-string {
 # Returns kubelet flags used on both Linux and Windows nodes.
 function construct-common-kubelet-flags {
   local flags="${KUBELET_TEST_LOG_LEVEL:-"--v=2"} ${KUBELET_TEST_ARGS:-}"
-  flags+=" --cloud-provider=gce"
+  flags+=" --cloud-provider=${CLOUD_PROVIDER_FLAG:-gce}"
   # TODO(mtaufen): ROTATE_CERTIFICATES seems unused; delete it?
   if [[ -n "${ROTATE_CERTIFICATES:-}" ]]; then
     flags+=" --rotate-certificates=true"
@@ -781,9 +781,6 @@ function construct-linux-kubelet-flags {
       flags+=" --resolv-conf=/run/systemd/resolve/resolv.conf"
     fi
   fi
-  if [[ -n "${NON_MASQUERADE_CIDR:-}" ]]; then
-    flags+=" --non-masquerade-cidr=${NON_MASQUERADE_CIDR}"
-  fi
   flags+=" --volume-plugin-dir=${VOLUME_PLUGIN_DIR}"
   local node_labels
   node_labels="$(build-linux-node-labels "${node_type}")"
@@ -794,14 +791,11 @@ function construct-linux-kubelet-flags {
     flags+=" --register-with-taints=${NODE_TAINTS}"
   fi
 
-  flags+=" --container-runtime=remote"
-  if [[ "${CONTAINER_RUNTIME}" == "containerd" ]]; then
-    CONTAINER_RUNTIME_ENDPOINT=${KUBE_CONTAINER_RUNTIME_ENDPOINT:-unix:///run/containerd/containerd.sock}
-    flags+=" --runtime-cgroups=/system.slice/containerd.service"
-  fi
+  CONTAINER_RUNTIME_ENDPOINT=${KUBE_CONTAINER_RUNTIME_ENDPOINT:-unix:///run/containerd/containerd.sock}
+  flags+=" --container-runtime-endpoint=${CONTAINER_RUNTIME_ENDPOINT}"
 
-  if [[ -n "${CONTAINER_RUNTIME_ENDPOINT:-}" ]]; then
-    flags+=" --container-runtime-endpoint=${CONTAINER_RUNTIME_ENDPOINT}"
+  if [[ "${CONTAINER_RUNTIME_ENDPOINT}" =~ /containerd.sock$ ]]; then
+    flags+=" --runtime-cgroups=/system.slice/containerd.service"
   fi
 
   KUBELET_ARGS="${flags}"
@@ -861,11 +855,9 @@ function construct-windows-kubelet-flags {
   # TODO(#78628): Re-enable KubeletPodResources when the issue is fixed.
   # Force disable KubeletPodResources feature on Windows until #78628 is fixed.
   flags+=" --feature-gates=KubeletPodResources=false"
-  flags+=" --container-runtime=remote"
-  if [[ "${WINDOWS_CONTAINER_RUNTIME}" == "containerd" ]]; then
-    WINDOWS_CONTAINER_RUNTIME_ENDPOINT=${KUBE_WINDOWS_CONTAINER_RUNTIME_ENDPOINT:-npipe:////./pipe/containerd-containerd}
-    flags+=" --container-runtime-endpoint=${WINDOWS_CONTAINER_RUNTIME_ENDPOINT}"
-  fi
+
+  WINDOWS_CONTAINER_RUNTIME_ENDPOINT=${KUBE_WINDOWS_CONTAINER_RUNTIME_ENDPOINT:-npipe:////./pipe/containerd-containerd}
+  flags+=" --container-runtime-endpoint=${WINDOWS_CONTAINER_RUNTIME_ENDPOINT}"
 
   KUBELET_ARGS="${flags}"
 }
@@ -1107,7 +1099,6 @@ METADATA_AGENT_CLUSTER_LEVEL_MEMORY_REQUEST: $(yaml-quote "${METADATA_AGENT_CLUS
 DOCKER_REGISTRY_MIRROR_URL: $(yaml-quote "${DOCKER_REGISTRY_MIRROR_URL:-}")
 ENABLE_L7_LOADBALANCING: $(yaml-quote "${ENABLE_L7_LOADBALANCING:-none}")
 ENABLE_CLUSTER_LOGGING: $(yaml-quote "${ENABLE_CLUSTER_LOGGING:-false}")
-ENABLE_CLUSTER_UI: $(yaml-quote "${ENABLE_CLUSTER_UI:-false}")
 ENABLE_NODE_PROBLEM_DETECTOR: $(yaml-quote "${ENABLE_NODE_PROBLEM_DETECTOR:-none}")
 NODE_PROBLEM_DETECTOR_VERSION: $(yaml-quote "${NODE_PROBLEM_DETECTOR_VERSION:-}")
 NODE_PROBLEM_DETECTOR_TAR_HASH: $(yaml-quote "${NODE_PROBLEM_DETECTOR_TAR_HASH:-}")

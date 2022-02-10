@@ -381,6 +381,7 @@ const (
 	// owner: @denkensk
 	// alpha: v1.15
 	// beta: v1.19
+	// ga: v1.24
 	//
 	// Enables NonPreempting option for priorityClass and pod.
 	NonPreemptingPriority featuregate.Feature = "NonPreemptingPriority"
@@ -396,6 +397,7 @@ const (
 	// kep: http://kep.k8s.io/563
 	// alpha: v1.15
 	// beta: v1.21
+	// ga: v1.23
 	//
 	// Enables ipv6 dual stack
 	IPv6DualStack featuregate.Feature = "IPv6DualStack"
@@ -834,7 +836,7 @@ func init() {
 // available throughout Kubernetes binaries.
 var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureSpec{
 	AppArmor:             {Default: true, PreRelease: featuregate.Beta},
-	DynamicKubeletConfig: {Default: false, PreRelease: featuregate.Deprecated}, // feature gate is deprecated in 1.22, remove no early than 1.23
+	DynamicKubeletConfig: {Default: false, PreRelease: featuregate.Deprecated}, // feature gate is deprecated in 1.22, kubelet logic is removed in 1.24, api server logic can be removed in 1.26
 	ExperimentalHostUserNamespaceDefaultingGate: {Default: false, PreRelease: featuregate.Beta},
 	DevicePlugins:                                  {Default: true, PreRelease: featuregate.Beta},
 	RotateKubeletServerCertificate:                 {Default: true, PreRelease: featuregate.Beta},
@@ -881,7 +883,7 @@ var defaultKubernetesFeatureGates = map[featuregate.Feature]featuregate.FeatureS
 	JobReadyPods:                                   {Default: false, PreRelease: featuregate.Alpha},
 	KubeletPodResources:                            {Default: true, PreRelease: featuregate.Beta},
 	LocalStorageCapacityIsolationFSQuotaMonitoring: {Default: false, PreRelease: featuregate.Alpha},
-	NonPreemptingPriority:                          {Default: true, PreRelease: featuregate.Beta},
+	NonPreemptingPriority:                          {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.25
 	PodOverhead:                                    {Default: true, PreRelease: featuregate.Beta},
 	IPv6DualStack:                                  {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.25
 	EndpointSlice:                                  {Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 1.25

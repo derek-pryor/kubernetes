@@ -484,17 +484,17 @@ function ensure-local-ssds-ephemeral-storage() {
   safe-format-and-mount "${device}" "${ephemeral_mountpoint}"
 
   # mount container runtime root dir on SSD
-  local container_runtime="${CONTAINER_RUNTIME:-containerd}"
-  systemctl stop "$container_runtime"
+  local container_runtime_name="${CONTAINER_RUNTIME_NAME:-containerd}"
+  systemctl stop "$container_runtime_name"
   # Some images remount the container runtime root dir.
-  umount "/var/lib/${container_runtime}" || true
+  umount "/var/lib/${container_runtime_name}" || true
   # Move the container runtime's directory to the new location to preserve
   # preloaded images.
-  if [ ! -d "${ephemeral_mountpoint}/${container_runtime}" ]; then
-    mv "/var/lib/${container_runtime}" "${ephemeral_mountpoint}/${container_runtime}"
+  if [ ! -d "${ephemeral_mountpoint}/${container_runtime_name}" ]; then
+    mv "/var/lib/${container_runtime_name}" "${ephemeral_mountpoint}/${container_runtime_name}"
   fi
-  safe-bind-mount "${ephemeral_mountpoint}/${container_runtime}" "/var/lib/${container_runtime}"
-  systemctl start "$container_runtime"
+  safe-bind-mount "${ephemeral_mountpoint}/${container_runtime_name}" "/var/lib/${container_runtime_name}"
+  systemctl start "$container_runtime_name"
 
   # mount kubelet root dir on SSD
   mkdir -p "${ephemeral_mountpoint}/kubelet"
@@ -2179,7 +2179,7 @@ function start-kube-controller-manager {
   local params=("${CONTROLLER_MANAGER_TEST_LOG_LEVEL:-"--v=2"}" "${CONTROLLER_MANAGER_TEST_ARGS:-}" "${CLOUD_CONFIG_OPT}")
   local config_path='/etc/srv/kubernetes/kube-controller-manager/kubeconfig'
   params+=("--use-service-account-credentials")
-  params+=("--cloud-provider=gce")
+  params+=("--cloud-provider=${CLOUD_PROVIDER_FLAG:-gce}")
   params+=("--kubeconfig=${config_path}" "--authentication-kubeconfig=${config_path}" "--authorization-kubeconfig=${config_path}")
   params+=("--root-ca-file=${CA_CERT_BUNDLE_PATH}")
   params+=("--service-account-private-key-file=${SERVICEACCOUNT_KEY_PATH}")
@@ -2550,7 +2550,7 @@ function start-volumesnapshot-crd-and-controller {
 # endpoint.
 function update-container-runtime {
   local -r file="$1"
-  local -r container_runtime_endpoint="${CONTAINER_RUNTIME_ENDPOINT:-unix:///var/run/containerd/containerd.sock}"
+  local -r container_runtime_endpoint="${CONTAINER_RUNTIME_ENDPOINT:-unix:///run/containerd/containerd.sock}"
   sed -i \
     -e "s@{{ *fluentd_container_runtime_service *}}@${FLUENTD_CONTAINER_RUNTIME_SERVICE:-${CONTAINER_RUNTIME_NAME:-containerd}}@g" \
     -e "s@{{ *container_runtime_endpoint *}}@${container_runtime_endpoint#unix://}@g" \
@@ -2594,12 +2594,6 @@ function update-event-exporter {
     local -r stackdriver_resource_model="${LOGGING_STACKDRIVER_RESOURCE_TYPES:-old}"
     sed -i -e "s@{{ exporter_sd_resource_model }}@${stackdriver_resource_model}@g" "$1"
     sed -i -e "s@{{ exporter_sd_endpoint }}@${STACKDRIVER_ENDPOINT:-}@g" "$1"
-}
-
-function update-dashboard-deployment {
-  if [ -n "${CUSTOM_KUBE_DASHBOARD_BANNER:-}" ]; then
-    sed -i -e "s@\( \+\)# PLATFORM-SPECIFIC ARGS HERE@\1- --system-banner=${CUSTOM_KUBE_DASHBOARD_BANNER}\n\1- --system-banner-severity=WARNING@" "$1"
-  fi
 }
 
 # Sets up the manifests of coreDNS for k8s addons.
@@ -2827,11 +2821,6 @@ EOF
     local -r event_exporter_yaml="${dst_dir}/fluentd-gcp/event-exporter.yaml"
     update-event-exporter ${event_exporter_yaml}
     update-prometheus-to-sd-parameters ${event_exporter_yaml}
-  fi
-  if [[ "${ENABLE_CLUSTER_UI:-}" == "true" ]]; then
-    setup-addon-manifests "addons" "dashboard"
-    local -r dashboard_deployment_yaml="${dst_dir}/dashboard/dashboard-deployment.yaml"
-    update-dashboard-deployment ${dashboard_deployment_yaml}
   fi
   if [[ "${ENABLE_NODE_PROBLEM_DETECTOR:-}" == "daemonset" ]]; then
     setup-addon-manifests "addons" "node-problem-detector"
@@ -3446,20 +3435,14 @@ function main() {
   fi
 
   log-wrap 'OverrideKubectl' override-kubectl
-  container_runtime="${CONTAINER_RUNTIME:-containerd}"
-  # Run the containerized mounter once to pre-cache the container image.
-  if [[ "${container_runtime}" == "docker" ]]; then
+  if docker-installed; then
+    # We still need to configure docker so it wouldn't reserver the 172.17.0/16 subnet
+    # And if somebody will start docker to build or pull something, logging will also be set up
     log-wrap 'AssembleDockerFlags' assemble-docker-flags
-  elif [[ "${container_runtime}" == "containerd" ]]; then
-    if docker-installed; then
-      # We still need to configure docker so it wouldn't reserver the 172.17.0/16 subnet
-      # And if somebody will start docker to build or pull something, logging will also be set up
-      log-wrap 'AssembleDockerFlags' assemble-docker-flags
-      # stop docker if it is present as we want to use just containerd
-      log-wrap 'StopDocker' systemctl stop docker || echo "unable to stop docker"
-    fi
-    log-wrap 'SetupContainerd' setup-containerd
+    # stop docker if it is present as we want to use just containerd
+    log-wrap 'StopDocker' systemctl stop docker || echo "unable to stop docker"
   fi
+  log-wrap 'SetupContainerd' setup-containerd
 
   log-start 'SetupKubePodLogReadersGroupDir'
   if [[ -n "${KUBE_POD_LOG_READERS_GROUP:-}" ]]; then

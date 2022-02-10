@@ -76,7 +76,6 @@ import (
 	"k8s.io/kubernetes/pkg/kubelet/events"
 	"k8s.io/kubernetes/pkg/kubelet/eviction"
 	"k8s.io/kubernetes/pkg/kubelet/images"
-	"k8s.io/kubernetes/pkg/kubelet/kubeletconfig"
 	"k8s.io/kubernetes/pkg/kubelet/kuberuntime"
 	"k8s.io/kubernetes/pkg/kubelet/lifecycle"
 	"k8s.io/kubernetes/pkg/kubelet/logs"
@@ -220,27 +219,27 @@ type Dependencies struct {
 	Options []Option
 
 	// Injected Dependencies
-	Auth                    server.AuthInterface
-	CAdvisorInterface       cadvisor.Interface
-	Cloud                   cloudprovider.Interface
-	ContainerManager        cm.ContainerManager
-	EventClient             v1core.EventsGetter
-	HeartbeatClient         clientset.Interface
-	OnHeartbeatFailure      func()
-	KubeClient              clientset.Interface
-	Mounter                 mount.Interface
-	HostUtil                hostutil.HostUtils
-	OOMAdjuster             *oom.OOMAdjuster
-	OSInterface             kubecontainer.OSInterface
-	PodConfig               *config.PodConfig
-	Recorder                record.EventRecorder
-	Subpather               subpath.Interface
-	VolumePlugins           []volume.VolumePlugin
-	DynamicPluginProber     volume.DynamicPluginProber
-	TLSOptions              *server.TLSOptions
-	KubeletConfigController *kubeletconfig.Controller
-	RemoteRuntimeService    internalapi.RuntimeService
-	RemoteImageService      internalapi.ImageManagerService
+	Auth                 server.AuthInterface
+	CAdvisorInterface    cadvisor.Interface
+	Cloud                cloudprovider.Interface
+	ContainerManager     cm.ContainerManager
+	EventClient          v1core.EventsGetter
+	HeartbeatClient      clientset.Interface
+	OnHeartbeatFailure   func()
+	KubeClient           clientset.Interface
+	Mounter              mount.Interface
+	HostUtil             hostutil.HostUtils
+	OOMAdjuster          *oom.OOMAdjuster
+	OSInterface          kubecontainer.OSInterface
+	PodConfig            *config.PodConfig
+	ProbeManager         prober.Manager
+	Recorder             record.EventRecorder
+	Subpather            subpath.Interface
+	VolumePlugins        []volume.VolumePlugin
+	DynamicPluginProber  volume.DynamicPluginProber
+	TLSOptions           *server.TLSOptions
+	RemoteRuntimeService internalapi.RuntimeService
+	RemoteImageService   internalapi.ImageManagerService
 	// remove it after cadvisor.UsingLegacyCadvisorStats dropped.
 	useLegacyCadvisorStats bool
 }
@@ -289,8 +288,7 @@ func PreInitRuntimeService(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 	containerRuntime string,
 	runtimeCgroups string,
 	remoteRuntimeEndpoint string,
-	remoteImageEndpoint string,
-	nonMasqueradeCIDR string) error {
+	remoteImageEndpoint string) error {
 	if remoteRuntimeEndpoint != "" {
 		// remoteImageEndpoint is same as remoteRuntimeEndpoint if not explicitly specified
 		if remoteImageEndpoint == "" {
@@ -733,13 +731,17 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 		}
 	}
 
-	klet.probeManager = prober.NewManager(
-		klet.statusManager,
-		klet.livenessManager,
-		klet.readinessManager,
-		klet.startupManager,
-		klet.runner,
-		kubeDeps.Recorder)
+	if kubeDeps.ProbeManager != nil {
+		klet.probeManager = kubeDeps.ProbeManager
+	} else {
+		klet.probeManager = prober.NewManager(
+			klet.statusManager,
+			klet.livenessManager,
+			klet.readinessManager,
+			klet.startupManager,
+			klet.runner,
+			kubeDeps.Recorder)
+	}
 
 	tokenManager := token.NewManager(kubeDeps.KubeClient)
 
@@ -1600,6 +1602,16 @@ func (kl *Kubelet) syncPod(ctx context.Context, updateType kubetypes.SyncPodType
 		return fmt.Errorf("%s: %v", NetworkNotReadyErrorMsg, err)
 	}
 
+	// ensure the kubelet knows about referenced secrets or configmaps used by the pod
+	if !kl.podWorkers.IsPodTerminationRequested(pod.UID) {
+		if kl.secretManager != nil {
+			kl.secretManager.RegisterPod(pod)
+		}
+		if kl.configMapManager != nil {
+			kl.configMapManager.RegisterPod(pod)
+		}
+	}
+
 	// Create Cgroups for the pod and apply resource parameters
 	// to them if cgroups-per-qos flag is enabled.
 	pcm := kl.containerManager.NewPodContainerManager()
@@ -1828,6 +1840,14 @@ func (kl *Kubelet) syncTerminatedPod(ctx context.Context, pod *v1.Pod, podStatus
 		return err
 	}
 	klog.V(4).InfoS("Pod termination unmounted volumes", "pod", klog.KObj(pod), "podUID", pod.UID)
+
+	// After volume unmount is complete, let the secret and configmap managers know we're done with this pod
+	if kl.secretManager != nil {
+		kl.secretManager.UnregisterPod(pod)
+	}
+	if kl.configMapManager != nil {
+		kl.configMapManager.UnregisterPod(pod)
+	}
 
 	// Note: we leave pod containers to be reclaimed in the background since dockershim requires the
 	// container for retrieving logs and we want to make sure logs are available until the pod is

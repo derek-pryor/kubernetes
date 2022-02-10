@@ -19,7 +19,6 @@ package services
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,7 +35,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/kubernetes/cmd/kubelet/app/options"
 	"k8s.io/kubernetes/pkg/cluster/ports"
-	"k8s.io/kubernetes/pkg/features"
 	kubeletconfig "k8s.io/kubernetes/pkg/kubelet/apis/config"
 	"k8s.io/kubernetes/pkg/kubelet/kubeletconfig/configfiles"
 	kubeletconfigcodec "k8s.io/kubernetes/pkg/kubelet/kubeletconfig/util/codec"
@@ -271,15 +269,6 @@ func (e *E2EServices) startKubelet() (*server, error) {
 		kc.FeatureGates = framework.TestContext.FeatureGates
 	}
 
-	if utilfeature.DefaultFeatureGate.Enabled(features.DynamicKubeletConfig) {
-		// Enable dynamic config if the feature gate is enabled
-		dynamicConfigDir, err := getDynamicConfigDir()
-		if err != nil {
-			return nil, err
-		}
-		cmdArgs = append(cmdArgs, "--dynamic-config-dir", dynamicConfigDir)
-	}
-
 	// Keep hostname override for convenience.
 	if framework.TestContext.NodeName != "" { // If node name is specified, set hostname override.
 		cmdArgs = append(cmdArgs, "--hostname-override", framework.TestContext.NodeName)
@@ -337,7 +326,7 @@ func writeKubeletConfigFile(internal *kubeletconfig.KubeletConfiguration, path s
 		return err
 	}
 	// write the file
-	if err := ioutil.WriteFile(path, data, 0755); err != nil {
+	if err := os.WriteFile(path, data, 0755); err != nil {
 		return err
 	}
 	return nil
@@ -349,7 +338,7 @@ func createPodDirectory() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to get current working directory: %v", err)
 	}
-	path, err := ioutil.TempDir(cwd, "static-pods")
+	path, err := os.MkdirTemp(cwd, "static-pods")
 	if err != nil {
 		return "", fmt.Errorf("failed to create static pod directory: %v", err)
 	}
@@ -376,7 +365,7 @@ contexts:
   name: local-context
 current-context: local-context`, framework.TestContext.BearerToken, getAPIServerClientURL()))
 
-	if err := ioutil.WriteFile(path, kubeconfig, 0666); err != nil {
+	if err := os.WriteFile(path, kubeconfig, 0666); err != nil {
 		return err
 	}
 	return nil
@@ -421,15 +410,6 @@ func createKubeconfigCWD() (string, error) {
 		return "", err
 	}
 	return kubeconfigPath, nil
-}
-
-// getDynamicConfigDir returns the directory for dynamic Kubelet configuration
-func getDynamicConfigDir() (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(cwd, "dynamic-kubelet-config"), nil
 }
 
 // adjustArgsForSystemd escape special characters in kubelet arguments for systemd. Systemd

@@ -20,7 +20,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"regexp"
 	"strings"
@@ -73,7 +72,7 @@ func initReg() RegistryList {
 		return registry
 	}
 
-	fileContent, err := ioutil.ReadFile(repoList)
+	fileContent, err := os.ReadFile(repoList)
 	if err != nil {
 		panic(fmt.Errorf("Error reading '%v' file contents: %v", repoList, err))
 	}
@@ -241,6 +240,9 @@ func initImageConfigs(list RegistryList) (map[int]Config, map[int]Config) {
 	configs[VolumeGlusterServer] = Config{list.PromoterE2eRegistry, "volume/gluster", "1.3"}
 	configs[VolumeRBDServer] = Config{list.PromoterE2eRegistry, "volume/rbd", "1.0.4"}
 	configs[WindowsServer] = Config{list.MicrosoftRegistry, "windows", "1809"}
+
+	// import CSI images from the generate csi-manifest.go file
+	initCSIImageConfigs(list, configs)
 
 	// if requested, map all the SHAs into a known format based on the input
 	originalImageConfigs := configs
